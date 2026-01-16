@@ -5,6 +5,35 @@
 #include "Functions.h"
 
 
+unsigned int Get_Max_Texture_Count ()
+{
+	unsigned int counter_dds = 0;
+	unsigned int counter_bmp = 0;
+	for (unsigned int i = 0; i < 999; i++)
+	{
+		stringstream bmp, dds;
+		bmp << i << ".bmp";
+		dds << i << ".dds";
+		ifstream testbmp, testdds;
+
+		testbmp.open(bmp.str(), std::ios::binary);
+		if (testbmp.is_open())
+		{
+			counter_bmp = i + 1;
+			testbmp.close();
+		}
+
+		testdds.open(dds.str(), std::ios::binary);
+		if (testdds.is_open())
+		{
+			counter_dds = i + 1;
+			testdds.close();
+		}
+	}
+	return ((counter_bmp > counter_dds) ? counter_bmp : counter_dds);
+}
+
+
 void ZONE_Import_Textures (ifstream &input, bool &exit)
 {
 	system("cls");
@@ -17,7 +46,9 @@ void ZONE_Import_Textures (ifstream &input, bool &exit)
 	ZONE_FAKES_HEADER zone_fakes_header;
 	ZONE_FAKES_ELEMENT zone_fakes_element;
 	ostringstream LIST, RAW, FAKES;
+	unsigned int nTexturesNew = 0;
 	int oldsize(0), newsize(0), diffsize(0), replaced(0);
+	char selection;
 
 	///////////////////    CALCOLO DIMENSIONE FILE ORIGINALE
 	input.seekg (0, ios::end);
@@ -33,7 +64,8 @@ void ZONE_Import_Textures (ifstream &input, bool &exit)
     input.seekg(zone_header.TEXTURE_PTR);
     input.read(reinterpret_cast<char*>(&zone_materials_header.nMaterials), sizeof(zone_materials_header.nMaterials));	// Legge il numero di materiali (serve per poterli saltare)
 	input.seekg(4, ios_base::cur);																						// Salta Unknown1
-    input.read(reinterpret_cast<char*>(&zone_materials_header.nTextures), sizeof(zone_materials_header.nTextures));		// Legge il numero di textures
+	streamoff texturecount_position = input.tellg();
+	input.read(reinterpret_cast<char*>(&zone_materials_header.nTextures), sizeof(zone_materials_header.nTextures));		// Legge il numero di textures
 	input.seekg(zone_materials_header.nMaterials * 24 + 4, input.cur);													// Salta il blocco materiali
 	streamoff list_position = input.tellg();											// Memorizza l'offset dove inizia la lista degli header delle texture
 	streamoff raw_position = zone_materials_header.nTextures * 40 + list_position;		// Memorizza l'offset dove iniziano i dati RAW delle texture
@@ -41,7 +73,53 @@ void ZONE_Import_Textures (ifstream &input, bool &exit)
 	vector <CHRZONE_TLIST> tlist(zone_materials_header.nTextures);				// Vettore contenente tutte le informazioni della lista delle texture
 	vector <ZONE_RAWINFO> rawinfo(zone_materials_header.nTextures);				// Vettore contenente le informazioni di dimensione e offset di ogni dato RAW
 
-	cout << "  Writing " << zone_materials_header.nTextures << " textures...\n";
+	////////////////////	LETTURA NUMERO DI TEXTURES DA IMPORTARE PRESENTI NELLA CARTELLA
+	if (DirectoryExists(IO.folder_texture.c_str()))
+		SetCurrentDirectory(IO.folder_texture_lpwstr);			// Imposta la cartella dove si trovano le textures per la successiva lettura
+	else
+	{
+		cout << red << "\n  ERROR: texture folder not found. Operation aborted." << dark_white;
+		cout << "\n\n\n  Press any key to return to the main menu.";
+		FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
+		_getch();
+		return;
+	}
+
+	int numTextures = Get_Max_Texture_Count();
+	int maxTextures = (zone_materials_header.nTextures > numTextures) ? zone_materials_header.nTextures : numTextures;
+
+	do
+	{
+		cout << "\n  Zone file contains " << zone_materials_header.nTextures << " texture slots. Would you like to increase/decrease them? [Y/N] ";
+		FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
+		selection = tolower(_getch());
+	} while (selection != 'y' && selection != 'n');
+
+	if (selection == 'n')
+	{
+		cout << "N";
+		nTexturesNew = zone_materials_header.nTextures;
+	}
+	if (selection == 'y')
+	{
+		cout << "Y";
+		do
+		{
+			cout << "\n  Enter the new number of texture slots [1-" << maxTextures << "]: ";
+			if (cin >> nTexturesNew)
+			{
+				if (nTexturesNew >= 1 && nTexturesNew <= maxTextures)
+					break;
+			}
+			else
+			{
+				cin.clear();						// resetta lo stato di errore
+				cin.ignore(10000, '\n');			// scarta tutto fino al newline
+			}
+		} while (true);
+	}
+
+	cout << "\n  Writing " << nTexturesNew << " textures...\n";
 
     for (unsigned int T = 0; T < zone_materials_header.nTextures; T++)		// Lettura informazioni textures originali
 	{
@@ -65,25 +143,16 @@ void ZONE_Import_Textures (ifstream &input, bool &exit)
 			rawinfo[T].offset = rawinfo[T-1].offset + rawinfo[T-1].rawsize;
 	}
 
-	if (DirectoryExists(IO.folder_texture.c_str()))
-		SetCurrentDirectory(IO.folder_texture_lpwstr);			// Imposta la cartella dove si trovano le textures per la successiva lettura
-	else
-	{
-		cout << red << "\n  ERROR: texture folder not found. Operation aborted." << dark_white;
-		cout << "\n\n\n  Press any key to return to the main menu.";
-		FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
-		_getch();
-		return;
-	}
+	if (nTexturesNew > zone_materials_header.nTextures)
+		tlist.resize(nTexturesNew);
 
-	for (unsigned int T = 0; T < zone_materials_header.nTextures; T++)		// Lettura textures esterne, preparazione lista nuova e blocco dati raw nuovo
+	for (unsigned int T = 0; T < nTexturesNew; T++)		// Lettura textures esterne, preparazione lista nuova e blocco dati raw nuovo
 	{
 		stringstream dds, bmp;
 		dds << T << ".dds";
 		bmp << T << ".bmp";
 		bool import_dds = FileExists(dds.str());
 		bool import_bmp = FileExists(bmp.str());
-		int selection(0);
 		if (import_dds && import_bmp)					// Se nella cartella sono presenti sia il BMP che il DDS della stessa texture viene chiesto quale usare
 		{
 			do
@@ -91,14 +160,14 @@ void ZONE_Import_Textures (ifstream &input, bool &exit)
 				cout << purple << "\n  WARNING - Texture " << T << ": 2 textures found. Select 1 for BMP or 2 for DDS: " << dark_white;
 				FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
 				selection = _getch();
-			} while (selection != 49 && selection != 50);
+			} while (selection != '1' && selection != '2');
 			
-			if (selection == 49)
+			if (selection == '1')
 			{
 				cout << "1";
 				import_dds = false;
 			}
-			if (selection == 50)
+			if (selection == '2')
 			{
 				cout << "2";
 				import_bmp = false;
@@ -132,11 +201,30 @@ void ZONE_Import_Textures (ifstream &input, bool &exit)
 
 		if (!import_dds && !import_bmp)								// Se mancano sia la texture DDS che BMP viene ricopiata la texture originale
 		{
-			char* buffer = new char[rawinfo[T].rawsize];			// Buffer di lettura
-			input.seekg(rawinfo[T].offset, ios_base::beg);			// Posiziona la lettura all'inizio dei dati RAW
-			input.read(buffer, rawinfo[T].rawsize);					// Legge i dati raw della texture e li mette nel buffer
-			RAW.write(buffer, rawinfo[T].rawsize);					// Copia il buffer nello stringstream dei dati RAW
-			delete[] buffer;
+			if (T < zone_materials_header.nTextures)
+			{
+				char* buffer = new char[rawinfo[T].rawsize];			// Buffer di lettura
+				input.seekg(rawinfo[T].offset, ios_base::beg);			// Posiziona la lettura all'inizio dei dati RAW
+				input.read(buffer, rawinfo[T].rawsize);					// Legge i dati raw della texture e li mette nel buffer
+				RAW.write(buffer, rawinfo[T].rawsize);					// Copia il buffer nello stringstream dei dati RAW
+				delete[] buffer;
+			}
+			else
+			{
+				string dummytexture("\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF\xFF\xFF\xFF\xFF\0\0\0\xFF", 256);
+				RAW.write(dummytexture.data(), dummytexture.size());
+				tlist[T].DXT = 21;
+				tlist[T].ColourBumpShadow = 2;
+				tlist[T].Unknown1 = 1;
+				tlist[T].Unknown2 = 30;
+				tlist[T].Mips = 1;
+				tlist[T].Xsize = 8;
+				tlist[T].Ysize = 8;
+				tlist[T].RAWsize = 256;
+				tlist[T].Unknown3 = 0;
+				tlist[T].Unknown4 = 0;
+				replaced++;
+			}
 		}
 
 		/////////////////	SCRITTURA LISTA TEXTURE
@@ -154,7 +242,7 @@ void ZONE_Import_Textures (ifstream &input, bool &exit)
 		newsize += tlist[T].RAWsize;		// Calcolo nuova dimensione del blocco texture
 	}
 
-	diffsize = newsize - oldsize;
+	diffsize = newsize - oldsize + 40 * (nTexturesNew - zone_materials_header.nTextures);
 
 	SetCurrentDirectory(IO.folder_chrzone_lpwstr);
 
@@ -168,23 +256,33 @@ void ZONE_Import_Textures (ifstream &input, bool &exit)
 	out.write(reinterpret_cast<char*>(&newMESH_PTR), sizeof(zone_header.MESH_PTR));
 	out.write(reinterpret_cast<char*>(&newEOF_PTR), sizeof(zone_header.EOF_PTR));
 
-	// Lettura e scrittura dati dall'inizio del file +20 bytes al punto di inizio della lista delle texture
-	char* buffer1 = new char[list_position - 20];		// Buffer di lettura
-	input.seekg(20, ios_base::beg);						// Posiziona la lettura subito dopo la fine dell'header del file ZONE
-	input.read(buffer1, list_position - 20);			// Legge i dati PS2, oggetti PS2 e collisioni oggetti
-	out.write(buffer1, list_position - 20);				// Copia il buffer nel file definitivo
+	// Lettura e scrittura dati dall'inizio del file +20 bytes al punto del numero di textures
+	char* buffer1 = new char[texturecount_position - 20];	// Buffer di lettura
+	input.seekg(20, ios_base::beg);							// Posiziona la lettura subito dopo la fine dell'header del file ZONE
+	input.read(buffer1, texturecount_position - 20);		// Legge i dati PS2, oggetti PS2 e collisioni oggetti
+	out.write(buffer1, texturecount_position - 20);			// Copia il buffer nel file definitivo
 	delete[] buffer1;
+
+	// Scrittura nuovo numero di textures
+	out.write(reinterpret_cast<char*>(&nTexturesNew), sizeof(zone_materials_header.nTextures));
+
+	// Lettura e scrittura dati dal numero di textures all'inizio della lista di textures
+	char* buffer2 = new char[zone_materials_header.nMaterials * 24 + 4];	// Buffer di lettura
+	input.seekg(4, ios_base::cur);											// Posiziona la lettura subito dopo il numero di textures
+	input.read(buffer2, zone_materials_header.nMaterials * 24 + 4);			// Legge la lista dei materiali
+	out.write(buffer2, zone_materials_header.nMaterials * 24 + 4);			// Copia il buffer nel file definitivo
+	delete[] buffer2;
 
 	// Scrittura nuova lista texture e nuovo blocco dati RAW
 	out << LIST.str();
 	out << RAW.str();
 
 	// Lettura e scrittura dati geometria stanze e oggetti
-	char* buffer2 = new char[zone_header.EOF_PTR - zone_header.MESH_PTR];		// Buffer di lettura
+	char* buffer3 = new char[zone_header.EOF_PTR - zone_header.MESH_PTR];		// Buffer di lettura
 	input.seekg(zone_header.MESH_PTR, ios_base::beg);							// Posiziona la lettura all'inizio del blocco dati mesh
-	input.read(buffer2, zone_header.EOF_PTR - zone_header.MESH_PTR);			// Legge i dati mesh stanze ed oggetti
-	out.write(buffer2, zone_header.EOF_PTR - zone_header.MESH_PTR);				// Copia il buffer nel file definitivo
-	delete[] buffer2;
+	input.read(buffer3, zone_header.EOF_PTR - zone_header.MESH_PTR);			// Legge i dati mesh stanze ed oggetti
+	out.write(buffer3, zone_header.EOF_PTR - zone_header.MESH_PTR);				// Copia il buffer nel file definitivo
+	delete[] buffer3;
 
 	// Fakes
 	input.seekg(zone_header.EOF_PTR, ios_base::beg);																	// Posiziona la lettura all'inizio del blocco dei fakes
@@ -195,11 +293,11 @@ void ZONE_Import_Textures (ifstream &input, bool &exit)
 
 	if (zone_fakes_header.P1_Fake_First == 0)		// Se non ci sono fakes viene copiata la porzione finale del file così com'è
 	{
-		char* buffer3 = new char[filesize - zone_header.EOF_PTR];					// Buffer di lettura
+		char* buffer4 = new char[filesize - zone_header.EOF_PTR];					// Buffer di lettura
 		input.seekg(zone_header.EOF_PTR, ios_base::beg);							// Posiziona la lettura all'inizio del blocco fakes
-		input.read(buffer3, filesize - zone_header.EOF_PTR);						// Legge la porzione finale vuota del file originale
-		out.write(buffer3, filesize - zone_header.EOF_PTR);							// Copia il buffer nel file definitivo
-		delete[] buffer3;
+		input.read(buffer4, filesize - zone_header.EOF_PTR);						// Legge la porzione finale vuota del file originale
+		out.write(buffer4, filesize - zone_header.EOF_PTR);							// Copia il buffer nel file definitivo
+		delete[] buffer4;
 	}
 	else											// Se ci sono fakes vengono corretti gli offset e copiati gli altri valori
 	{
@@ -223,17 +321,17 @@ void ZONE_Import_Textures (ifstream &input, bool &exit)
 				newBegNext = zone_fakes_element.BegNext + diffsize;
 			out.write(reinterpret_cast<char*>(&newBegPrev), sizeof(zone_fakes_element.BegPrev));
 			out.write(reinterpret_cast<char*>(&newBegNext), sizeof(zone_fakes_element.BegNext));
-			char* buffer3 = new char[136];								// Buffer di lettura
-			input.read(buffer3, 136);									// Legge i dati invariati dell'elemento fake
-			out.write(buffer3, 136);									// Copia il buffer nel file definitivo
-			delete[] buffer3;
+			char* buffer5 = new char[136];								// Buffer di lettura
+			input.read(buffer5, 136);									// Legge i dati invariati dell'elemento fake
+			out.write(buffer5, 136);									// Copia il buffer nel file definitivo
+			delete[] buffer5;
 		} while (zone_fakes_element.BegNext != 0);
 
 		streamoff cur_position = input.tellg();
-		char* buffer3 = new char[filesize - cur_position];				// Buffer di lettura
-		input.read(buffer3, filesize - cur_position);					// Legge la porzione finale vuota del file originale
-		out.write(buffer3, filesize - cur_position);					// Copia il buffer nel file definitivo
-		delete[] buffer3;
+		char* buffer6 = new char[filesize - cur_position];				// Buffer di lettura
+		input.read(buffer6, filesize - cur_position);					// Legge la porzione finale vuota del file originale
+		out.write(buffer6, filesize - cur_position);					// Copia il buffer nel file definitivo
+		delete[] buffer6;
 	}
 	char* backupbuffer = new char[filesize];				// Buffer di backup
 	input.seekg (0, ios::beg);
@@ -257,10 +355,10 @@ void ZONE_Import_Textures (ifstream &input, bool &exit)
 	output.close();
 	input.open(IO.file_chrzone, std::ios::binary);			// Riapre il file nuovo
 
-	cout << green << "\n\n  OPERATION COMPLETED - Replaced " << replaced << " out of " << zone_materials_header.nTextures << " textures." << dark_white;
+	cout << green << "\n\n  OPERATION COMPLETED - Replaced " << replaced << " out of " << nTexturesNew << " textures." << dark_white;
 	cout << "\n\n\n  Press any key to return to the Main Menu or Escape to exit.";
 	FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
-	int selection = _getch();
+	selection = _getch();
 	if (selection == 27)
 		exit = true;
 }

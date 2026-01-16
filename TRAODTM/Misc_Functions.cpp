@@ -76,7 +76,7 @@ void UI_Title ()
 	cout << " บ                                                                                                                   บ\n";
 	cout << " บ  For any question, feel free to contact me on http://www.aspidetr.com/forum/ or http://www.tombraiderforums.com/  บ\n";
 	cout << " ศอออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผ\n";
-	cout << dark_cyan << "                                                                                                 v. 0.1    2018/06/20\n\n\n" << dark_white;
+	cout << dark_cyan << "                                                                                                 v. 0.2    2026/01/05\n\n\n" << dark_white;
 }
 
 

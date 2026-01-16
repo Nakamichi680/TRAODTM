@@ -66,6 +66,9 @@ bool Texture_BMPtoRAW (string filename, CHRZONE_TLIST *textinfo, ostringstream *
     bmp.close();
 
 	textinfo->DXT = 21;
+	textinfo->ColourBumpShadow = (textinfo->ColourBumpShadow == 0) ? 2 : textinfo->ColourBumpShadow;
+	textinfo->Unknown1 = (textinfo->Unknown1 == 0) ? 1 : textinfo->Unknown1;
+	textinfo->Unknown2 = (textinfo->Unknown2 == 0) ? 30 : textinfo->Unknown2;
 	textinfo->Mips = 1;
 	textinfo->Xsize = Xsize;
 	textinfo->Ysize = Ysize;

@@ -14,10 +14,12 @@ void ZONE_Import_Materials (ifstream &input, bool &exit)
 	ZONE_HEADER zone_header;
 	ZONE_MATERIALS_HEADER zone_materials_header;
 	ZONE_MATERIALS_LIST zone_materials_list;
-	int replaced(0), linecount(2), mn(-2);
+	int diffsize(0), replaced(0), linecount(2), mn(-2);
+	unsigned int nMaterialsNew = 0;
 	bool name = false;
 	bool count = false;
 	bool valid = false;
+	char selection;
 	size_t pos = 0;
 
 	///////////////////    CALCOLO DIMENSIONE FILE ORIGINALE
@@ -28,6 +30,7 @@ void ZONE_Import_Materials (ifstream &input, bool &exit)
     input.seekg(4, ios::beg);					// Posiziona il cursore di lettura all'inizio del file, con offset di 4 bytes per leggere l'offset del blocco textures
     input.read(reinterpret_cast<char*>(&zone_header.TEXTURE_PTR), sizeof(zone_header.TEXTURE_PTR));
     input.seekg(zone_header.TEXTURE_PTR);
+	streamoff nMaterials_position = input.tellg();				// Memorizza l'offset dove è salvato il numero di materiali
     input.read(reinterpret_cast<char*>(&zone_materials_header.nMaterials), sizeof(zone_materials_header.nMaterials));	// Legge il numero di materiali
 	input.seekg(12, ios::cur);
 	streamoff materials_position = input.tellg();				// Memorizza l'offset dove iniziano i materiali
@@ -147,11 +150,29 @@ void ZONE_Import_Materials (ifstream &input, bool &exit)
 						count = true;
 					else
 					{
-						cout << red << "\n\n  ERROR - Line " << linecount << ": mismatching materials count. Operation aborted." << dark_white;
-						cout << "\n\n\n  Press any key to return to the main menu.";
-						FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
-						_getch();
-						return;
+						do
+						{
+							cout << yellow << "\n\n  WARNING - Line " << linecount << ": mismatching materials count." << dark_white;
+							cout << "\n  Zone file contains " << zone_materials_header.nMaterials << " material slots. Would you like to increase/decrease them? [Y/N] ";
+							FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
+							selection = tolower(_getch());
+						} while (selection != 'y' && selection != 'n');
+
+						if (selection == 'n')
+						{
+							cout << "N";
+							cout << "\n\n\n  Operation aborted. Press any key to return to the main menu.";
+							FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
+							_getch();
+							return;
+						}
+						if (selection == 'y')
+						{
+							cout << "Y";
+							nMaterialsNew = matnumber;
+							if (nMaterialsNew > zone_materials_header.nMaterials)
+								templist.resize(nMaterialsNew);
+						}				
 					}
 				}
 			}
@@ -169,7 +190,7 @@ void ZONE_Import_Materials (ifstream &input, bool &exit)
 					}
 					else
 					{
-						if (mn >= zone_materials_header.nMaterials)		// Se il numero del materiale è superiore al numero totale di materiali si passa oltre
+						if (mn >= nMaterialsNew)						// Se il numero del materiale è superiore al numero totale di materiali si passa oltre
 						{
 							valid = false;
 							cout << purple << "\n\n  WARNING - Line " << linecount << ": invalid material ID. Skipping material." << dark_white;
